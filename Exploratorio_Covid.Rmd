@@ -1,0 +1,776 @@
+---
+title: "Exploratorio de datos de casos positivos de covid-19 en el Atlantico"
+author: "Luis Mariño y Juan Garcia"
+date: "2026-02-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduccion y descrpcion de datos
+
+La siguiente base de Datos contiene informacion de los casos positivos de Covid 19 en el departamento del Atlantico entre el 20 de Marzo de 2020 hasta el 17 de Enero de 2024 reportado por los Datos Abiertos del Instituto Nacional de Salud en Colombia. El archivo contiene un total de 419061 datos y 23 diferentes variables que contienen datos importantes como fechas, datos demograficos, causa de contagio, diagnostico final, entre otros.
+
+Se creará una nueva variable que permita calcular el tiempo de recuperación de los pacientes recuperados y el tiempo transcurrido hasta el fallecimiento en los casos de muerte. Esto facilitará comprender mejor el comportamiento y la evolución de la enfermedad en la población estudiada.
+
+Adicionalmente con estos datos podremos identificar :
+
+-   Cuáles son los casos más comunes de contagio de COVID-19 en el departamento del Atlántico.
+
+-   Analizar en qué tipo de población se concentraron la mayor cantidad de muertes.
+
+-   Observar los tiempos en los que se registraron mas casos positivos de Covid 19.
+
+**Descripción de Variables – Base de Datos COVID-19 Colombia**
+
+1.  **id_de_caso**: Identificador único asignado a cada caso confirmado de COVID-19.
+
+2.  **fecha_de_notificacion**: Fecha en la que el caso fue reportado oficialmente al sistema de vigilancia.
+
+3.  **codigo_divipola_departamento**: Código oficial DANE que identifica el departamento.
+
+4.  **nombre_departamento**: Nombre del departamento donde se reporta el caso.
+
+5.  **codigo_divipola_municipio**: Código oficial DANE que identifica el municipio.
+
+6.  **nombre_municipio**: Nombre del municipio donde se reporta el caso.
+
+7.  **edad**: Edad del paciente al momento del diagnóstico.
+
+8.  **unidad_medida_edad**: Unidad en la que se reporta la edad (años, meses, días).
+
+9.  **sexo**: Sexo biológico del paciente (M: masculino, F: femenino).
+
+10. **tipo_de_contagio**: Clasificación del contagio (Importado, Relacionado, En estudio, Comunitario).
+
+11. **ubicacion**: Estado de atención del paciente (Casa, Hospital, UCI, Fallecido).
+
+12. **estado**: Estado actual del caso (Leve, Moderado, Grave, Fallecido, Recuperado).
+
+13. **pais_de_procedencia**: País desde el cual provino el caso si fue importado.
+
+14. **fecha_de_inicio_de_sintomas**: Fecha en la que el paciente presentó los primeros síntomas.
+
+15. **fecha_de_diagnostico**: Fecha en la que se confirmó el diagnóstico positivo.
+
+16. **fecha_de_recuperacion**: Fecha en la que el paciente fue declarado recuperado.
+
+17. **tipo_de_recuperacion**: Forma en que se certificó la recuperación (Prueba, Tiempo clínico).
+
+18. **fecha_de_muerte**: Fecha de fallecimiento del paciente (si aplica).
+
+19. **fecha_de_reporte_web**: Fecha en que el caso fue publicado en el portal oficial.
+
+20. **fuente_tipo_contagio**: Información adicional sobre el origen del contagio.
+
+21. **pertenencia_etnica**: Grupo étnico al que pertenece el paciente (si aplica).
+
+22. **nombre_grupo_etnico**: Especificación del grupo étnico reportado.
+
+23. **clasificacion_final**: Clasificación epidemiológica final del caso (Confirmado por laboratorio, Clínico, etc.).
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(skimr)
+library(lubridate)
+library(ggplot2)
+library(corrplot)
+
+library(readr)
+
+library(readr)
+library(dplyr)
+
+df <- readr::read_delim(
+  file = "C:/Users/Juanes Garcia Gomez/Documents/EDA#1/Casos_positivos_de_COVID-19_en_atlantico._20260221 (2).csv",
+  delim = ";",
+  locale = locale(encoding = "UTF-8"),
+  show_col_types = FALSE
+)
+
+
+df <- df %>% 
+  filter(if_any(everything(), ~ !is.na(.)))
+df<- clean_names(df)
+dim(df)
+glimpse(df)
+view(df)
+```
+
+```{r}
+df <- df[rowSums(is.na(df)) != ncol(df), ]
+dim(df)
+```
+
+Creacion variable Dias de recuperacion
+
+Tomamos la diferencia de dias entre la fecha de los primeros sintomas y fecha de recuperacion
+
+Cambiamos la clase de nuestras variables porque eran tipo character
+
+```{r}
+library(lubridate)
+library(dplyr)
+library(stringr)
+
+df <- df %>%
+  mutate(across(
+    c(fecha_de_inicio_de_sintomas,
+      fecha_de_recuperacion),
+    ~ parse_date_time(str_trim(.), orders = c("dmy HM", "dmy"))
+  ))
+
+```
+
+```{r}
+df <- df %>%
+  mutate(
+    dias_recuperacion = as.numeric(
+      fecha_de_recuperacion - fecha_de_inicio_de_sintomas
+    )
+  )
+
+summary(df$dias_recuperacion)
+```
+
+## **Creacion Variable Dias hasta fallecimiento**
+
+Esta variable fue creada para calcular el número de días transcurridos desde la fecha de inicio de síntomas hasta la fecha de fallecimiento, con el fin de analizar el tiempo de evolución del covid 19 en los casos graves.
+
+```{r}
+
+
+
+df <- df %>%
+  mutate(
+    fecha_de_muerte = parse_date_time(
+      str_trim(fecha_de_muerte),
+      orders = c("dmy HM", "dmy")
+    )
+  )
+```
+
+## 
+
+```{r}
+df <- df %>%
+  mutate(
+    dias_hasta_fallecimiento = as.numeric(
+      as.Date(fecha_de_muerte) -
+      as.Date(fecha_de_inicio_de_sintomas)
+    )
+  )
+
+summary(df$dias_hasta_fallecimiento)
+class(df$fecha_de_muerte)
+```
+
+Revision de NA
+
+```{r}
+resumen_na <- df %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(everything(),
+               names_to = "variable",
+               values_to = "total_na") %>%
+  arrange(desc(total_na))
+
+resumen_na
+
+resumen_na <- df %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(everything(),
+               names_to = "variable",
+               values_to = "total_na") %>%
+  mutate(
+    porcentaje_na = round(100 * total_na / nrow(df), 2)
+  ) %>%
+  arrange(desc(porcentaje_na))
+
+resumen_na
+
+```
+
+```{r}
+resumen_na %>%
+  filter(total_na > 0)
+
+sum(!complete.cases(df))
+```
+
+Teniendo en cuenta la base de datos y los datos N/A, los datos N/A en la variable "Nombre del Pais" son de Colombia por lo que se van a reemplazar por "Colombia. Por otra parte, por la poca utilidad de la variable Codigo ISO del país y su gran porcentaje de N/A, se va a borrar la columna.
+
+```{r}
+df$nombre_del_pais[is.na(df$nombre_del_pais)] <- "Colombia"
+sum(is.na(df$nombre_del_pais))
+head(df)
+```
+
+```         
+```
+
+Adicionalmente, al analizar los valores faltantes en la variable “Recuperado”, se observa que estos corresponden a registros que presentan una fecha de muerte, lo que indica que se trata de personas fallecidas.
+
+```{r}
+head(df)
+df <- df %>%
+  mutate(
+    estado = replace_na(estado, "Fallecido")
+  )
+```
+
+## **Conversion Variable edad**
+
+La variable "Unidad de medida de edad" indica si la edad del paciente está expresada en años, meses o días. En este caso se va a unificar la información y se realizará la conversión de la edad de todos los pacientes a años.
+
+```{r}
+df <- df %>%
+  mutate(
+    edad = as.numeric(edad),
+    unidad_de_medida_de_edad = as.numeric(unidad_de_medida_de_edad),
+    edad_años = case_when(
+      unidad_de_medida_de_edad == 1 ~ edad,
+      unidad_de_medida_de_edad == 2 ~ edad / 12,
+      unidad_de_medida_de_edad == 3 ~ edad / 365,
+      TRUE ~ edad
+    )
+  )
+
+```
+
+Resumen Variables
+
+```{r}
+cat("DIMENSIONES:\n")
+dim(df)
+cat("INFORMACION")
+glimpse(df)
+head(df)
+
+```
+
+## Variables Categoricas
+
+```{r}
+vars_categoricas <- df %>%
+  select(where(~ is.character(.) || is.factor(.))) %>%
+  names()
+
+vars_categoricas
+```
+
+## Variables Cuantitativas
+
+-   Edad
+
+-   Dias_de_recuperacion
+
+-   dias_hasta_fallecimiento
+
+-   Edad_años
+
+# Observaciones Variables importantes
+
+```{r}
+
+ggplot(df, aes(y = edad_años)) +
+  geom_boxplot(
+    fill = "#2C3E50",
+    color = "black",
+    width = 0.4,
+    outlier.color = "#E74C3C",
+    outlier.size = 2
+  ) +
+  labs(
+    title = " Edad de Casos Positivos COVID-19 en Atlántico",
+    y = "Edad en años",
+    x = NULL
+  ) +
+  theme_classic(base_size = 15) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text = element_text(color = "black")
+  )
+```
+
+```{r}
+
+
+ggplot(df, aes(x = edad_años)) +
+  geom_histogram(
+    binwidth = 10,
+    boundary = 0,
+    color = "steelblue",
+    fill="steelblue"
+  ) +
+  labs(
+    title = " Edad de los Casos positivos COVID-19 en Atlántico",
+    x = "Edad en años",
+    y = "Frecuencia"
+  )
+
+```
+
+A partir de las gráficas se puede observar que la mayor proporción de casos positivos de COVID-19 corresponde a personas con edades aproximadamente entre los 30 y 40 años.
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(tidyr)
+
+# Asegurar formato fecha
+df <- df %>%
+  mutate(
+    fecha_de_notificacion = as.Date(fecha_de_notificacion)
+  )
+
+tabla_casos <- df %>%
+  filter(!is.na(fecha_de_notificacion)) %>%
+  mutate(
+    año = year(fecha_de_notificacion),
+    mes = month(fecha_de_notificacion)
+  ) %>%
+  count(año, mes) %>%
+  complete(
+    año = 2020:2024,
+    mes = 1:12,
+    fill = list(n = 0)
+  ) %>%
+  pivot_wider(
+    names_from = mes,
+    values_from = n
+  ) %>%
+  arrange(año)
+
+
+colnames(tabla_casos)[-1] <- c(
+  "Enero","Febrero","Marzo","Abril","Mayo","Junio",
+  "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"
+)
+
+tabla_casos
+```
+
+Por lo observado en la grafica y en la tabla, hubo un pico de casos positivos durante Marzo y Abril 2021 en el que se obtuvieron 53,350 y 71,715 casos positivos de Covid 19 en el Atlantico. Tambien se puede observar que en el año 2023 se redujieron considerablemente los casos.
+
+Casos por Municipio:
+
+```{r}
+top_mun <- df %>%
+  count(nombre_municipio) %>%
+  arrange(desc(n)) %>%
+  slice(1:12)
+
+library(scales)
+
+ggplot(top_mun, aes(x = reorder(nombre_municipio, n), y = n)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  scale_y_continuous(labels = comma) +   
+  theme_minimal() +
+  labs(title = "Top municipios")
+```
+
+A partir del grafico de Barras, se puede observar que la gran mayoria de los casos positvos de covid 19 se concentraron en Barranquilla ,seguido por Soledad y Sabanalarga.
+
+## Tasa de Mortalidad por municipio
+
+```{r}
+tabla <- df %>%
+  filter(
+    !is.na(nombre_municipio), 
+    !is.na(recuperado),         
+    recuperado %in% c("Recuperado", "Fallecido")
+  ) %>%
+  count(nombre_municipio, recuperado) %>%
+  group_by(nombre_municipio) %>%
+  mutate(porcentaje = n / sum(n) * 100) %>%
+  ungroup()
+
+tabla <- df %>%
+  filter(
+    !is.na(nombre_municipio),
+    nombre_municipio != "NA",
+    nombre_municipio != "",
+    !is.na(recuperado),
+    recuperado %in% c("Recuperado", "Fallecido")
+  ) %>%
+  count(nombre_municipio, recuperado) %>%
+  group_by(nombre_municipio) %>%
+  mutate(porcentaje = n / sum(n) * 100) %>%
+  ungroup()
+df %>% count(nombre_municipio, sort = TRUE) %>% head(10)
+
+```
+
+```{r}
+
+
+
+tabla <- df %>%
+  filter(
+    !is.na(nombre_municipio),
+    nombre_municipio != "",
+    !is.na(recuperado),
+    recuperado %in% c("Recuperado", "Fallecido")
+  ) %>%
+  count(nombre_municipio, recuperado) %>%
+  group_by(nombre_municipio) %>%
+  mutate(porcentaje = n / sum(n) * 100) %>%
+  ungroup()
+
+
+orden_municipios <- tabla %>%
+  filter(recuperado == "Fallecido") %>%
+  arrange(desc(porcentaje)) %>%
+  pull(nombre_municipio)
+
+tabla <- tabla %>%
+  mutate(nombre_municipio = factor(nombre_municipio,
+                                   levels = orden_municipios))
+
+
+ggplot(tabla, aes(x = porcentaje,
+                  y = nombre_municipio,
+                  fill = recuperado)) +
+  geom_col() +
+  geom_text(
+    aes(label = sprintf("%.1f%%", porcentaje)),
+    position = position_stack(vjust = 0.5),
+    size = 3
+  ) +
+  scale_fill_manual(values = c(
+    "Recuperado" = "#1ABC9C",
+    "Fallecido" = "#E74C3C"
+  )) +
+  labs(
+    title = "Distribución porcentual de casos por municipio",
+    x = "Porcentaje (%)",
+    y = "Municipio",
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+A traves de esta grafica podemos observar que el municipio con mejor manejo en la pandemia fue Santa Lucia con un 97.5% de recuperados, teniendo en cuenta que fue el segundo municipio con menor casos de Covid 19 en el Atlantico. Juan de Acosta y Candelaria fueron los municipios por detras de Santa Lucia que tuvieron menor tasa de mortalidad ya que tuvieron un 97.4% de recuperados. Por otro lado, Tubara fue el mayor afectado en el Atlantico llegando a tener una tasa de mortalidad del 5% del Covid 19.
+
+## Tipo de Contagio:
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+
+contagio_tabla <- df %>%
+  count(tipo_de_contagio) %>%
+  mutate(
+    porcentaje = n / sum(n)
+  )
+
+
+ggplot(contagio_tabla, aes(x = "", y = porcentaje, fill = tipo_de_contagio)) +
+  geom_col(width = 1) +
+  coord_polar(theta = "y", start = pi/2) +
+  geom_text(
+    aes(label = percent(porcentaje, accuracy = 0.001)),
+    position = position_stack(vjust = 0.5),
+    size = 4
+  ) +
+  labs(
+    title = "Distribución de tipos de contagio en casos positivos de COVID-19 en Atlántico",
+    fill = "Tipo de contagio"
+  ) +
+  theme_void(base_size = 14)
+```
+
+Con base en los resultados, el tipo de contagio mas comun es el comunitario con un 68%, es decir, cuando no se sabe la fuente exacta del contagio. La segunda forma de contagio mas frecuente es la "relacionada" con un 31%, en donde se sabe que hubo contacto directo con otra persona ya con el virus. Por ultimo, la menos comun es la "importada", y trata de los casos en donde se contagio en el extranjero y la vino despues al pais.
+
+## Sexo
+
+```{r}
+
+
+
+sexo_tabla <- df %>%
+  count(sexo)
+
+
+ggplot(sexo_tabla, aes(x = sexo, y = n)) +
+  geom_col(fill = "steelblue") +
+  labs(
+    title = "Distribución de casos positivos de COVID-19 según sexo",
+    x = "Sexo",
+    y = "Número de casos"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+```{r}
+sexo_tabla <- df %>%
+  filter(!is.na(sexo)) %>%
+  count(sexo) %>%
+  mutate(porcentaje = n / sum(n))
+
+ggplot(sexo_tabla, aes(x = "", y = porcentaje, fill = sexo)) +
+  geom_col(width = 1) +
+  coord_polar(theta = "y", start = pi/2) +
+  geom_text(
+    aes(label = percent(porcentaje, accuracy = 0.001)),
+    position = position_stack(vjust = 0.5),
+    size = 4
+  ) +
+  labs(
+    title = "Distribución de sexos en casos positivos de COVID-19 en Atlántico",
+    fill = "Sexo"
+  ) +
+  theme_void(base_size = 14)
+```
+
+En este grafico de barras y pie, se puede observar que hay mayor cantidad de casos positivos de covid 19 en el genero masculino.
+
+```{r}
+
+
+
+
+tabla_sexo <- df %>%
+  filter(!is.na(sexo),
+         !is.na(recuperado),
+         recuperado %in% c("Recuperado", "Fallecido")) %>%
+  count(sexo, recuperado) %>%
+  group_by(sexo) %>%
+  mutate(porcentaje = n / sum(n) * 100) %>%
+  ungroup()
+
+
+ggplot(tabla_sexo, aes(x = sexo,
+                       y = porcentaje,
+                       fill = recuperado)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = sprintf("%.1f%%", porcentaje)),
+            position = position_stack(vjust = 0.5),
+            size = 4) +
+  scale_fill_manual(values = c(
+    "Fallecido" = "#1f77b4",   
+    "Recuperado" = "#ff7f0e"   
+  )) +
+  labs(
+    title = "Distribución porcentual de casos por sexo",
+    x = "Sexo",
+    y = "Porcentaje (%)",
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+A partir del gráfico de barras anterior, las mujeres en el Atlántico son más propensas a recuperarse del COVID-19, con una tasa de mortalidad del 2.5%. Mientras que los hombres presentan una mayor tasa de deceso, alcanzando el 3.7%.
+
+## Recuperacion:
+
+```{r}
+df %>%
+  count(estado, sort = TRUE)
+
+
+
+df <- df %>%
+  mutate(
+    estado = str_squish(estado),         
+    estado = str_to_title(estado)        
+  )
+```
+
+```{r}
+
+
+
+df <- df %>%
+  mutate(
+    recuperado = replace_na(recuperado, "Fallecido")
+  )
+
+```
+
+```{r}
+caso_recuperado <- df %>%
+  count(recuperado) %>%
+  filter(recuperado %in% c("Recuperado", "Fallecido"))
+```
+
+```{r}
+library(ggplot2)
+library(scales)
+
+ggplot(caso_recuperado, aes(x = "", y = n, fill = recuperado)) +
+  geom_col(width = 1) +
+  coord_polar(theta = "y", start = pi/2) +
+  geom_text(
+    aes(label = percent(n / sum(n), accuracy = 0.1)),
+    position = position_stack(vjust = 0.5),
+    size = 4
+  ) +
+  labs(
+    title = "Distribución de casos recuperados y fallecidos de COVID-19 en Atlántico",
+    fill = NULL
+  ) +
+  theme_void(base_size = 14)
+```
+
+Segun el grafico circular, se puede observar que existe una tasa de mortalidad del 2.5% en los casos positivos del Covid 19 en el Atlantico. Mientras que el restante 97.5% corresponde a los recuperados.
+
+## Dias de recuperacion
+
+```{r}
+library(ggplot2)
+
+ggplot(df, aes(x = dias_recuperacion)) +
+  geom_histogram(bins = 50,fill='lightgreen') +
+  coord_cartesian(xlim = c(0, 400), ylim = c(50000, 250000)) +
+  scale_y_continuous(breaks = seq(50000, 250000, by = 50000)) +
+  labs(
+    title = "Histograma días de recuperación",
+    x = "Días de recuperación",
+    y = "Frecuencia"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+```{r}
+stats <- df$dias_recuperacion
+
+tabla_dias_de_recuperacion <- data.frame(
+  Estadistico = c(
+    "Número de casos",
+    "Media",
+    "Desviación estándar",
+    "Mínimo",
+    "Percentil 25 (Q1)",
+    "Mediana (Q2)",
+    "Percentil 75 (Q3)",
+    "Máximo"
+  ),
+  Valor = c(
+    sum(!is.na(stats)),
+    round(mean(stats, na.rm = TRUE), 2),
+    round(sd(stats, na.rm = TRUE), 2),
+    round(min(stats, na.rm = TRUE), 0),
+    round(quantile(stats, 0.25, na.rm = TRUE), 0),
+    round(median(stats, na.rm = TRUE), 0),
+    round(quantile(stats, 0.75, na.rm = TRUE), 0),
+    round(max(stats, na.rm = TRUE), 0)
+  )
+)
+
+tabla_dias_de_recuperacion
+```
+
+En este Grafico del histograma se puede analizar que existe una distribucion asimetrica con un gran sesgo hacia la derecha. En la tabla se puede observar que el 50% de los datos de las personas para recuperarse del covid 19 ronda entre los 14 y 21 dias. la media de dias de recuperacion es de 23 dias por lo que esta fuera de este rango intercuartilico debido a la gran dispersion de datos por la cola larga en la derecha, ya que existen pacientes con recuperacion de hasta 386 dias. En este caso la mejor medida tendencia central es la mediana con un valor de 15 dias al presentar mejor comportamiento tipico que la media
+
+## Dias hasta Fallecimiento de pacientes con covid 19
+
+```{r}
+ggplot(df, aes(x = dias_hasta_fallecimiento)) +
+  geom_histogram(bins = 50, fill = "steelblue") +
+  labs(
+    title = "Días hasta fallecer",
+    x = "Días hasta fallecer",
+    y = "Frecuencia"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+```{r}
+stats <- df$dias_hasta_fallecimiento
+
+tabla_dias_hasta_fallecer <- data.frame(
+  Estadistico = c(
+    "Número de casos",
+    "Media",
+    "Desviación estándar",
+    "Mínimo",
+    "Percentil 25 (Q1)",
+    "Mediana (Q2)",
+    "Percentil 75 (Q3)",
+    "Máximo"
+  ),
+  Valor = c(
+    sum(!is.na(stats)),
+    round(mean(stats, na.rm = TRUE), 2),
+    round(sd(stats, na.rm = TRUE), 2),
+    round(min(stats, na.rm = TRUE), 0),
+    round(quantile(stats, 0.25, na.rm = TRUE), 0),
+    round(median(stats, na.rm = TRUE), 0),
+    round(quantile(stats, 0.75, na.rm = TRUE), 0),
+    round(max(stats, na.rm = TRUE), 0)
+  )
+)
+
+tabla_dias_hasta_fallecer
+```
+
+si como el anterior analisis, la distribución de días hasta fallecer presenta una fuerte asimetría positiva , con la mayoría de los casos concentrados entre 11 y 31 días .La media es mucho mayor que la mediana debido a valores atipicos en la cola de la derecha que alcanzan hasta 543 días. Entonces, se toma la mediana como la mejor medida central debido a que presenta un mejor comportamiento tipico teniendo un valor de 19 dias.
+
+## Correlacion entre variables numericas
+
+```{r}
+library(dplyr)
+
+datos_corr <- df %>%
+  select(edad_años,
+         dias_recuperacion,
+         dias_hasta_fallecimiento) %>%
+  na.omit()
+
+
+matriz_corr <- cor(datos_corr, method = "spearman")
+
+matriz_corr
+```
+
+```{r}
+
+
+matriz_larga <- as.data.frame(as.table(matriz_corr))
+colnames(matriz_larga) <- c("Variable1", "Variable2", "Correlacion")
+```
+
+```{r}
+
+
+ggplot(matriz_larga, aes(x = Variable1,
+                         y = Variable2,
+                         fill = Correlacion)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(Correlacion, 2)),
+            color = "black",
+            size = 4) +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0
+  ) +
+  labs(
+    title = "Mapa de calor de correlaciones",
+    x = "",
+    y = "",
+    fill = "Correlación"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(size = 6),   
+    axis.text.y = element_text(size = 11)
+  )
+```
+
+La matriz de correlacion entre las variables cuantitativas como lo son los dias hasta el fallecimiento, dias de recuperacion y edad muestra que no existe correlacion alguna entre estas. El objetivo principal de este grafico era verificar si el factor de la edad influye en el tiempo que toma una persona infectada por covid 19 en recuperarse o en el tiempo hasta fallecer.
+
+## Conclusion
+
+El análisis exploratorio de datos evidenció una gran cantidad considerable de valores faltantes en algunas variables, por lo que se requirio realizar procesos de limpieza y transformación para evitar datos erroneos en la información. A partir del tratamiento de las fechas, se generaron nuevas variables como los días de recuperación y los días hasta el fallecimiento, lo que permitió un análisis más detallado del comportamiento de la pandemia en el tiempo y ayudar a identificar de los picos de casos positivos.
+
+Además, se obtuvo información relevante sobre la distribución de los casos y la tasa de mortalidad según sexo y municipio, analizando cuáles fueron los territorios más afectados y los que mejor respondieron frente al virus. Los gráficos facilitaron la interpretación de tendencias y el impacto en la población del Atlántico según edad, sexo y ubicación, clarificando información útil para la toma de decisiones y la preparación para futuras emergencias sanitarias.
